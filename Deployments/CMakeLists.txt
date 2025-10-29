@@ -1,0 +1,1 @@
+add_fprime_deployment(Stage8MotorBridgeDeployment)

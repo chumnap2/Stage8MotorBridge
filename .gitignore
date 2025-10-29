@@ -1,0 +1,11 @@
+# F' build artifacts
+build-fprime-automatic-native/
+build-artifacts/
+sub-build-info-cache/
+
+# Python virtual environment
+fprime-venv/
+
+# OS files
+*.swp
+.DS_Store
