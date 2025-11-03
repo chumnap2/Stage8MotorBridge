@@ -1,0 +1,9 @@
+<?xml version="1.0"?>
+<components>
+    <component name="Topology" type="active">
+        <ports>
+            <port name="topology_in" type="input"/>
+            <port name="topology_out" type="output"/>
+        </ports>
+    </component>
+</components>
