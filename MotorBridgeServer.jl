@@ -1,141 +1,116 @@
-#!/usr/bin/env julia
+module MotorBridgeServer
 
 using Sockets
-using Logging
-using Printf
+using Dates
+using PyCall
+#using Base.Threads: @sleep
 
-# -------------------------------------------------------
-# GLOBAL MOTOR STATE
-# -------------------------------------------------------
-global motor_enabled        = false
-global motor_speed          = 0.0          # current simulated speed
-global motor_target_speed   = 0.0          # commanded speed
-global motor_position       = 0.0          # simulation position
-global telemetry_running    = false
-global server_running       = true
+# -----------------------------
+# Python VESC Setup via PyCall
+# -----------------------------
+py"""
+from pyvesc.VESC import VESC
+import time
+serial_port = "/dev/ttyACM0"
+vesc = VESC(serial_port, baudrate=115200, timeout=0.1)
+def enable_motor():
+    # Add any initialization logic if needed
+    pass
 
-# -------------------------------------------------------
-# TELEMETRY LOOP (runs in separate Task)
-# -------------------------------------------------------
-function telemetry_loop(client)
-    global motor_enabled
-    global motor_speed
-    global motor_target_speed
-    global motor_position
-    global telemetry_running
+def disable_motor():
+    # Stop motor safely
+    set_motor_duty(0.0)
 
-    println("📊 Starting telemetry loop...")
+def set_motor_duty(duty):
+    # Safe ramp-up/down: step duty by 0.05 every 0.1s
+    current = 0.0
+    step = 0.05
+    step_time = 0.1
+    # ramp up or down
+    while abs(current - duty) > 0.01:
+        if current < duty:
+            current = min(current + step, duty)
+        else:
+            current = max(current - step, duty)
+        vesc.set_duty_cycle(current)  # call VESC duty
+        time.sleep(step_time)
+"""
 
-    telemetry_running = true
+# Python function references
+enable_motor = py"enable_motor"
+disable_motor = py"disable_motor"
+set_motor_duty = py"set_motor_duty"
 
-    try
-        while telemetry_running
-            if motor_enabled
-                # simple first-order speed convergence
-                motor_speed += (motor_target_speed - motor_speed) * 0.2
-                motor_position += motor_speed * 0.1
-            else
-                motor_speed = 0.0
-            end
-
-            msg = @sprintf("T:%.3f,%.3f\n", motor_position, motor_speed)
-
-            try
-                write(client, msg)
-                flush(client)
-            catch
-                println("⚠️ Telemetry: client disconnected.")
-                break
-            end
-
-            sleep(0.1)
-        end
-    catch e
-        println("⛔ Telemetry crashed: $e")
-    end
-
-    telemetry_running = false
-    println("🛑 Telemetry loop stopped.")
+# -----------------------------
+# Motor Struct
+# -----------------------------
+mutable struct RealMotor
+    speed::Float64
+    enabled::Bool
 end
 
-# -------------------------------------------------------
-# COMMAND PROCESSOR (main loop)
-# -------------------------------------------------------
-function command_loop(client)
-    global motor_enabled
-    global motor_speed
-    global motor_target_speed
-    global motor_position
-    global telemetry_running
-    global server_running
+motor = RealMotor(0.0, false)
 
-    while server_running
-        raw = try
-            readline(client)
-        catch
-            println("🔌 Client disconnected from command loop.")
-            break
-        end
-
-        cmd = strip(raw)
-
-        if cmd == ""
-            continue
-        end
-
-        if cmd == "exit"
-            println("🔌 Client requested exit.")
-            break
-        elseif cmd == "enable"
-            global motor_enabled = true
-            println("🔹 ENABLE received")
-        elseif cmd == "disable"
-            global motor_enabled = false
-            println("🔹 DISABLE received")
-        elseif startswith(cmd, "set_speed")
-            parts = split(cmd)
-            if length(parts) == 2
-                val = parse(Float64, parts[2])
-                global motor_target_speed = val
-                println("🔹 Speed set to $val")
-            else
-                println("⚠️ Invalid set_speed command: $cmd")
-            end
-        else
-            println("⚠️ Unknown command: $cmd")
-        end
-    end
-
-    telemetry_running = false
+# -----------------------------
+# Motor Commands
+# -----------------------------
+function enable!(m::RealMotor)
+    m.enabled = true
+    enable_motor()
+    println("Motor enabled ✅")
 end
 
+function disable!(m::RealMotor)
+    m.enabled = false
+    set_motor_duty(0.0)
+    println("Motor disabled ⛔")
+end
 
-# -------------------------------------------------------
-# MAIN SERVER
-# -------------------------------------------------------
-function start_server(port=9001)
-    global server_running
+function set_speed!(m::RealMotor, duty::Float64)
+    m.speed = duty
+    set_motor_duty(duty)
+    println("Motor duty set to ", duty)
+end
 
-    println("🚀 MotorBridgeServer starting...")
+# -----------------------------
+# TCP Server
+# -----------------------------
+function run_motor_server(port::Int=9001)
+    println("Starting MotorBridgeServer on port $port...")
     server = listen(port)
-    println("Waiting for client on port $port...")
 
-    client = accept(server)
-    println("✅ Python client connected.")
-
-    # Start telemetry in background
-    @async telemetry_loop(client)
-
-    # Process commands in main thread
-    command_loop(client)
-
-    println("🛑 MotorBridgeServer stopping...")
-
-    try close(client) catch end
-    try close(server) catch end
+    while true
+        sock = accept(server)
+        @async handle_client(sock, motor)
+    end
 end
 
-# -------------------------------------------------------
-# Run server
-# -------------------------------------------------------
-start_server()
+function handle_client(sock::TCPSocket, motor::RealMotor)
+    try
+        while !eof(sock)
+            cmd = readline(sock)
+            cmd = strip(cmd)
+            if startswith(cmd, "enable")
+                enable!(motor)
+            elseif startswith(cmd, "disable")
+                disable!(motor)
+            elseif startswith(cmd, "set_speed")
+                duty = parse(Float64, split(cmd)[2])
+                set_speed!(motor, duty)
+            else
+                println("Unknown command: $cmd")
+            end
+        end
+    finally
+        close(sock)
+    end
+end
+
+# -----------------------------
+# Auto-start if run directly
+# -----------------------------
+if abspath(PROGRAM_FILE) == @__FILE__
+    run_motor_server(9001)
+end
+
+end # module
