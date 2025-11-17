@@ -1,61 +1,49 @@
-import socket
-import threading
-import sys
-import time
+import asyncio
 
-HOST = "127.0.0.1"
-PORT = 9001
+SERVER_HOST = "127.0.0.1"
+SERVER_PORT = 9001
 
-# --- Safe printing (no conflict with input) ---
-print_lock = threading.Lock()
-
-def safe_print(*args, **kwargs):
-    with print_lock:
-        sys.stdout.write("\r")         # return to line start
-        sys.stdout.flush()
-        print(*args, **kwargs)
-        print("> ", end="", flush=True)  # redraw stable prompt
-
-
-# --- Connect to Julia ---
-s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-s.connect((HOST, PORT))
-safe_print("✅ Connected to Julia bridge at 127.0.0.1:9001")
-safe_print("💻 Commands: enable, disable, speed <value>, stop")
-
-
-# --- Telemetry listener thread ---
-def telemetry_listener():
+async def handle_server(reader):
     while True:
-        try:
-            data = s.recv(1024).decode().strip()
-            if not data:
-                return
-            if data.startswith("T:"):
-                # Julia telemetry: "T:pos,vel"
-                _, payload = data.split(":")
-                pos, vel = payload.split(",")
-                safe_print(f"📊 Telemetry → Position: {pos}, Velocity: {vel}")
-        except:
-            return
-
-
-threading.Thread(target=telemetry_listener, daemon=True).start()
-
-
-# --- Input loop (stable prompt) ---
-while True:
-    try:
-        cmd = input("> ").strip()
-
-        if cmd == "exit":
+        line = await reader.readline()
+        if not line:
+            print("\n[Disconnected from server]")
             break
-        if not cmd:
-            continue
+        decoded = line.decode().strip()
+        if decoded.startswith("T:"):
+            pos, vel = decoded[2:].split(",")
+            print(f"\r📡 Telemetry -> Position: {pos}, Velocity: {vel}", end="")
+        else:
+            print(f"\n[Server] {decoded}")
 
-        s.sendall((cmd + "\n").encode())
+async def handle_user(writer):
+    loop = asyncio.get_running_loop()
+    while True:
+        cmd = await loop.run_in_executor(None, input, "\n> ")
+        if cmd.lower() in ("quit", "exit"):
+            print("Exiting client...")
+            writer.close()
+            await writer.wait_closed()
+            break
+        writer.write((cmd + "\n").encode())
+        await writer.drain()
 
-    except KeyboardInterrupt:
-        break
+async def main():
+    try:
+        reader, writer = await asyncio.open_connection(SERVER_HOST, SERVER_PORT)
+        print(f"Connected to {SERVER_HOST}:{SERVER_PORT}")
 
-s.close()
+        server_task = asyncio.create_task(handle_server(reader))
+        user_task = asyncio.create_task(handle_user(writer))
+
+        await asyncio.wait([server_task, user_task], return_when=asyncio.FIRST_COMPLETED)
+        server_task.cancel()
+        user_task.cancel()
+
+    except ConnectionRefusedError:
+        print(f"Cannot connect to {SERVER_HOST}:{SERVER_PORT}")
+    except Exception as e:
+        print(f"[Client error] {e}")
+
+if __name__ == "__main__":
+    asyncio.run(main())

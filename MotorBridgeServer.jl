@@ -1,84 +1,141 @@
+#!/usr/bin/env julia
+
 using Sockets
-include("SimMotorBridge.jl")
+using Logging
+using Printf
 
-const PORT = 9001
-server = listen(PORT)
-println("🚀 MotorBridgeServer started")
-println("Waiting for Python client on port $PORT...")
+# -------------------------------------------------------
+# GLOBAL MOTOR STATE
+# -------------------------------------------------------
+global motor_enabled        = false
+global motor_speed          = 0.0          # current simulated speed
+global motor_target_speed   = 0.0          # commanded speed
+global motor_position       = 0.0          # simulation position
+global telemetry_running    = false
+global server_running       = true
 
-client = accept(server)
-println("✅ Python client connected.")
+# -------------------------------------------------------
+# TELEMETRY LOOP (runs in separate Task)
+# -------------------------------------------------------
+function telemetry_loop(client)
+    global motor_enabled
+    global motor_speed
+    global motor_target_speed
+    global motor_position
+    global telemetry_running
 
-mb = SimMotorBridge()
-global running = true
-global last_time = time()
-global last_pos = get_position(mb)
-global last_vel = get_velocity(mb)
-
-time_hist = Float64[]
-pos_hist = Float64[]
-vel_hist = Float64[]
-
-function handle_command(cmd::String)
-    cmd = lowercase(strip(cmd))
-    if cmd == "enable"
-        CmdEnable!(mb, true)
-        println("🔹 Motor ENABLE command received")
-    elseif cmd == "disable"
-        CmdEnable!(mb, false)
-        println("🔹 Motor DISABLE command received")
-    elseif startswith(cmd, "speed")
-        parts = split(cmd)
-        if length(parts) == 2
-            v = parse(Float64, parts[2])
-            CmdSpeed!(mb, v)
-            println("⚡ Motor SPEED command set to $v")
-        else
-            println("❌ Invalid speed command")
-        end
-    elseif cmd == "stop"
-        global running = false
-        println("🛑 Stop command received")
-    else
-        println("❌ Unknown command: $cmd")
-    end
-end
-
-# --- Non-blocking readline ---
-function try_readline(sock::TCPSocket)
-    if !eof(sock) && bytesavailable(sock) > 0
-        return readline(sock)
-    else
-        return nothing
-    end
-end
-
-try
     println("📊 Starting telemetry loop...")
-    while running
-        # Read command if available
-        cmd = try_readline(client)
-        if cmd !== nothing
-            handle_command(cmd)
+
+    telemetry_running = true
+
+    try
+        while telemetry_running
+            if motor_enabled
+                # simple first-order speed convergence
+                motor_speed += (motor_target_speed - motor_speed) * 0.2
+                motor_position += motor_speed * 0.1
+            else
+                motor_speed = 0.0
+            end
+
+            msg = @sprintf("T:%.3f,%.3f\n", motor_position, motor_speed)
+
+            try
+                write(client, msg)
+                flush(client)
+            catch
+                println("⚠️ Telemetry: client disconnected.")
+                break
+            end
+
+            sleep(0.1)
+        end
+    catch e
+        println("⛔ Telemetry crashed: $e")
+    end
+
+    telemetry_running = false
+    println("🛑 Telemetry loop stopped.")
+end
+
+# -------------------------------------------------------
+# COMMAND PROCESSOR (main loop)
+# -------------------------------------------------------
+function command_loop(client)
+    global motor_enabled
+    global motor_speed
+    global motor_target_speed
+    global motor_position
+    global telemetry_running
+    global server_running
+
+    while server_running
+        raw = try
+            readline(client)
+        catch
+            println("🔌 Client disconnected from command loop.")
+            break
         end
 
-        # Update simulation
-        global last_time, last_pos, last_vel
-        dt = time() - last_time
-        step!(mb, dt)
-        last_pos = get_position(mb)
-        last_vel = get_velocity(mb)
-        last_time = time()
+        cmd = strip(raw)
 
-        # Send telemetry
-        write(client, "T:$last_pos,$last_vel\n")
-        flush(client)
+        if cmd == ""
+            continue
+        end
 
-        sleep(0.05)
+        if cmd == "exit"
+            println("🔌 Client requested exit.")
+            break
+        elseif cmd == "enable"
+            global motor_enabled = true
+            println("🔹 ENABLE received")
+        elseif cmd == "disable"
+            global motor_enabled = false
+            println("🔹 DISABLE received")
+        elseif startswith(cmd, "set_speed")
+            parts = split(cmd)
+            if length(parts) == 2
+                val = parse(Float64, parts[2])
+                global motor_target_speed = val
+                println("🔹 Speed set to $val")
+            else
+                println("⚠️ Invalid set_speed command: $cmd")
+            end
+        else
+            println("⚠️ Unknown command: $cmd")
+        end
     end
-finally
-    global running = false
-    close(client)
-    close(server)
-    println("🛑 Server shut down")
+
+    telemetry_running = false
 end
+
+
+# -------------------------------------------------------
+# MAIN SERVER
+# -------------------------------------------------------
+function start_server(port=9001)
+    global server_running
+
+    println("🚀 MotorBridgeServer starting...")
+    server = listen(port)
+    println("Waiting for client on port $port...")
+
+    client = accept(server)
+    println("✅ Python client connected.")
+
+    # Start telemetry in background
+    @async telemetry_loop(client)
+
+    # Process commands in main thread
+    command_loop(client)
+
+    println("🛑 MotorBridgeServer stopping...")
+
+    try close(client) catch end
+    try close(server) catch end
+end
+
+# -------------------------------------------------------
+# Run server
+# -------------------------------------------------------
+start_server()

@@ -1,0 +1,105 @@
+using Sockets
+using Dates
+#using SimMotorBridge   # your SimMotorBridge.jl file
+include("SimMotorBridge.jl")
+using CairoMakie       # or GLMakie/WGLMakie
+
+# === Server setup ===
+#const HOST = "127.0.0.1"
+#const PORT = 9000
+#server = listen(HOST, PORT)
+server = listen(9000)
+println("🚀 MotorBridgeServer started")
+println("Using SimMotorBridge()")
+println("Waiting for Python client on port $PORT...")
+
+client = accept(server)
+println("✅ Python client connected.")
+
+# === Simulation setup ===
+mb = SimMotorBridge()
+global running = true
+global last_time = time()
+global last_pos = get_position(mb)
+global last_vel = get_velocity(mb)
+
+time_hist = Float64[]
+pos_hist = Float64[]
+vel_hist = Float64[]
+
+# === Command handling ===
+function handle_command(cmd::String)
+    parts = split(cmd)
+    if isempty(parts)
+        return
+    end
+    c = lowercase(parts[1])
+    if c == "enable"
+        CmdEnable!(mb, true)
+        println("🔹 Motor ENABLE command received")
+    elseif c == "disable"
+        CmdEnable!(mb, false)
+        println("🔹 Motor DISABLE command received")
+    elseif c == "speed" && length(parts) == 2
+        v = parse(Float64, parts[2])
+        CmdSpeed!(mb, v)
+        println("⚡ Motor SPEED command set to $v")
+    elseif c == "stop"
+        running = false
+        println("🛑 Stop command received")
+    else
+        println("❌ Unknown command: $cmd")
+    end
+end
+
+# === Main loop ===
+try
+    println("📊 Starting telemetry loop...")
+    while running
+        # Read command if available
+        if isready(client)
+            cmd = readline(client)
+            handle_command(strip(cmd))
+        end
+
+        # Update simulation
+        global last_time, last_pos, last_vel
+        dt = time() - last_time
+        step!(mb, dt)
+        last_pos = get_position(mb)
+        last_vel = get_velocity(mb)
+        last_time = time()
+
+        # Store telemetry
+        push!(time_hist, last_time)
+        push!(pos_hist, last_pos)
+        push!(vel_hist, last_vel)
+
+        # Print telemetry
+        println("📊 Telemetry → Position: $(round(last_pos, digits=2)), Velocity: $(round(last_vel, digits=2))")
+
+        sleep(0.01)
+    end
+catch e
+    @warn "Server interrupted: $e"
+finally
+    running = false
+    try
+        close(client)
+        close(server)
+    catch
+        # already closed
+    end
+    println("🛑 Shutting down server...")
+
+    # === Plot telemetry ===
+    if !isempty(time_hist)
+        fig = Figure(resolution = (800, 400))
+        ax = Axis(fig[1, 1], xlabel="Time (s)", ylabel="Position / Velocity", title="Motor Telemetry")
+        lines!(ax, time_hist .- time_hist[1], pos_hist, label="Position")
+        lines!(ax, time_hist .- time_hist[1], vel_hist, label="Velocity")
+        axislegend(ax)
+        save("motor_response.png", fig)
+        println("📊 Saved telemetry plot to motor_response.png")
+    end
+end
