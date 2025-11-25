@@ -1,50 +1,61 @@
-Stage8MotorBridge
+# Stage8MotorBridge
 
-This project controls a VESC motor via a Julia TCP server and a Python client.
-It uses local, custom modules:
+Minimal VESC motor bridge using **Julia + Python** with TCP client-server control.  
+Fully automated setup and motor control with a **single command**.
 
-pyvesc_working/ → custom tested pyvesc version
+---
 
-F′ Stage8 components → local NASA F′ modules
+## Features
 
-Do NOT replace with public pyvesc or F′ modules, they may break compatibility.
+- Control VESC motor via Python client  
+- Julia server handles serial communication  
+- One-command setup and run (`setup_and_run.sh`)  
+- Fully contained Python venv and local pyvesc module  
+- Tested for Python 3.11 and Julia 1.10  
 
-Setup
+---
 
-Activate Python virtual environment: source fprime-venv/bin/activate
+## Quick Start
 
-Set PYTHONPATH to include local pyvesc: export PYTHONPATH=$PWD/pyvesc_working
+1. **Clone the repository**
 
-Start the Julia motor server: julia MotorBridgeServer.jl
+```bash
+git clone https://github.com/chumnap2/Stage8MotorBridge.git
+cd Stage8MotorBridge
+2Run the full setup, server, and client in one command
+chmod +x setup_and_run.sh
+./setup_and_run.sh
+This will:
 
-Start the Python client: python motor_client.py
+Create or activate the Python virtual environment (fprime-venv)
 
-Commands available in the client
+Install Python dependencies (crccheck, pyserial)
 
-enable
+Configure Julia packages and PyCall
 
-set_speed <value> (0.0 to 1.0)
+Start MotorBridgeServer.jl
 
-disable
+Launch the Python client automatically
+Using the Motor Client
 
-exit
-
-Testing the Motor
-
-After launching both the server and client, you can test motor control in Python:
-
-Connect to the VESC using pyvesc.VESC
-
-Spin at 10% duty cycle, wait 2 seconds
-
-Stop motor
-
-This ensures the hardware is responding before running full scripts.
-
+Once the client starts, you can send motor commands:
+> enable      # Enable motor
+> duty 0.3    # Set duty cycle (0.0 to 1.0)
+> stop        # Stop the motor
 Notes
 
-All previous experiments are stored in archive/
+Use Ctrl+C to stop the Julia server or close the client terminal
 
-VERSION file contains the current project version
+Ensure the motor is safely mounted before sending commands
 
-Safe ramping is implemented for smooth motor startup
+The server listens on TCP 127.0.0.1:5555 by default
+
+Release v1.2
+
+Fully automated setup_and_run.sh
+
+Frozen Python dependencies in requirements.txt
+
+Verified motor spin via client commands
+
+Updated README with one-command instructions

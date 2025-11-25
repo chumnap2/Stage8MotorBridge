@@ -13,3 +13,24 @@ motor_response.png
 *.jl~
 *.png
 *.jl~
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.env
+*.log
+*.bak
+
+# Julia
+*.ji
+*.toml
+*.jl.cov
+*.so
+
+# Backup archives
+*.tar.gz
+*.save
+
+# OS files
+Thumbs.db
