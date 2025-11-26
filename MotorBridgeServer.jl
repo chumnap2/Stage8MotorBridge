@@ -1,113 +1,89 @@
-#!/usr/bin/env julia
-# MotorBridgeServer.jl — PyCall + pyserial + TCP server
+using Sockets, PyCall, Dates
 
-using Sockets
-using Dates
-using PyCall
-
-println("✅ Loading pyvesc + serial...")
-
-# ---- PYTHON MODULES ----
+# -------------------------
+# Python imports
 serial = pyimport("serial")
 pyvesc = pyimport("pyvesc")
-SetDutyCycle = pyvesc.SetDutyCycle
+SetDutyCycle = pyvesc.messages.setters.SetDutyCycle
 encode = pyvesc.encode
 
-# ---- CONFIG ----
-const SERIAL_PORT = "/dev/ttyACM1"
-const BAUD_RATE = 115200
-const HOST = "127.0.0.1"
-const PORT = 5555
+# -------------------------
+# Detect VESC port
+ACM_ports = filter(p -> occursin("ttyACM", p), readdir("/dev", join=true))
+VESC_PORT = !isempty(ACM_ports) ? first(ACM_ports) : "/dev/ttyACM0"
+println("🔌 Connecting to VESC at $VESC_PORT ...")
+port = serial.Serial(VESC_PORT, 115200)
+println("✅ VESC connected on $VESC_PORT")
 
-# ---- GLOBAL STATE ----
-global motor_enabled = false
-global port = nothing
-
-# ---- CONNECT TO VESC ----
-try
-    global port
-    port = serial.Serial(SERIAL_PORT, BAUD_RATE)
-    println("✅ VESC connected on $SERIAL_PORT")
-catch e
-    println("❌ Failed to open serial port: ", e)
-    exit(1)
-end
-
-# ---- TCP SERVER ----
-#server = listen(IPAddr(HOST), PORT)
-server = listen(PORT)
-println("✅ TCP MotorBridgeServer listening on $HOST:$PORT")
-
-function log(msg)
-    println("$(Dates.now()) $msg")
-end
-
-# ---- FUNCTION TO SEND DUTY CYCLE ----
 function set_duty(d::Float64)
-    # Clamp duty and convert to VESC integer format
     vesc_duty = Int(round(clamp(d, -1.0, 1.0) * 100000))
-
-    # Create VESC message
     msg = SetDutyCycle(vesc_duty)
-
-    # Encode to Python bytes
     packet = encode(msg)
-
-    # Send raw bytes correctly: wrap as PyObject
-    pycall(port.write, PyObject, packet)
+    buf = Vector{UInt8}(packet)
+    pycall(port.write, PyAny, PyCall.pybytes(buf))
+    println("➡️ Duty set to $d at $(Dates.format(now(), "HH:MM:SS.sss"))")
 end
 
-# ---- COMMAND HANDLER ----
-function handle_command(cmd::String)
-    global motor_enabled, port
+# -------------------------
+# TCP server
+server = listen(ip"127.0.0.1", 5555)
+println("✅ TCP MotorBridgeServer listening on 127.0.0.1:5555")
+println("⏳ Waiting for client connection...")
+client = accept(server)
+println("✅ Client connected: $client")
 
-    cmd = strip(lowercase(cmd))
+# -------------------------
+# Shared state
+global running = false
+global target_duty = 0.0
 
-    if cmd == "enable"
-        motor_enabled = true
-        log("⚡ Motor ENABLED")
-
-    elseif cmd == "disable"
-        motor_enabled = false
-        try
-            set_duty(0.0)
-        catch
+# -------------------------
+# Motor loop thread
+motor_thread = Threads.@spawn begin
+    while true
+        if running
+            set_duty(target_duty)   # continuously apply last target duty
         end
-        log("🛑 Motor DISABLED")
+        sleep(0.05)  # 20 Hz update
+    end
+end
 
-    elseif startswith(cmd, "duty")
-        parts = split(cmd)
-        if length(parts) == 2 && motor_enabled
-            duty = parse(Float64, parts[2])
-            try
-                set_duty(duty)
-                log("➡️ Duty set to $duty")
-            catch e
-                log("❌ Failed to send duty: $e")
+# -------------------------
+# Command loop
+try
+    while true
+        data = readline(client)
+        println("📥 Command received: $data")
+        cmd = lowercase(strip(data))
+
+        if cmd == "enable"
+            global running
+            running = true
+            println("⚡ Motor ENABLED")
+
+        elseif startswith(cmd, "duty ")
+            parts = split(cmd, " ")
+            if length(parts) == 2
+                global target_duty
+                target_duty = parse(Float64, parts[2])
+            else
+                println("⚠️ Invalid duty command format")
             end
+
+        elseif cmd == "stop"
+            global running
+            running = false
+            set_duty(0.0)
+            println("🛑 Motor DISABLED")
+            break
+
         else
-            log("⚠️ Duty ignored (motor disabled or invalid format)")
+            println("⚠️ Unknown command: $cmd")
         end
-
-    else
-        log("❓ Unknown command: $cmd")
     end
-end
-
-# ---- MAIN LOOP ----
-while true
-    sock = accept(server)
-    println("✅ Client connected: $sock")
-
-    try
-        while !eof(sock)
-            line = readline(sock)
-            log("📥 Command received: $line")
-            handle_command(line)
-        end
-    catch e
-        println("❌ Server error: $e")
-    finally
-        close(sock)
-    end
+finally
+    println("✅ MotorBridgeServer exiting cleanly")
+    set_duty(0.0)
+    close(client)
+    close(server)
 end
