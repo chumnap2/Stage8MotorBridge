@@ -12,7 +12,6 @@ fprime-venv/
 motor_response.png
 *.jl~
 *.png
-*.jl~
 # Python
 __pycache__/
 *.pyc
@@ -34,3 +33,5 @@ __pycache__/
 
 # OS files
 Thumbs.db
++ .vscode/
++ *.tmp

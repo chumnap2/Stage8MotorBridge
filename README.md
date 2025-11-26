@@ -1,61 +1,49 @@
-# Stage8MotorBridge
+# Stage8MotorBridge — Julia / pyvesc VESC Motor Bridge
 
-Minimal VESC motor bridge using **Julia + Python** with TCP client-server control.  
-Fully automated setup and motor control with a **single command**.
-
----
-
-## Features
-
-- Control VESC motor via Python client  
-- Julia server handles serial communication  
-- One-command setup and run (`setup_and_run.sh`)  
-- Fully contained Python venv and local pyvesc module  
-- Tested for Python 3.11 and Julia 1.10  
+This repository provides a hardware control bridge using Julia and pyvesc to control a VESC-driven motor. It supports serial communication over `/dev/ttyACM1`, safe duty-cycle control via Python packets, and can be extended into a TCP or F´-integrated bridge.
 
 ---
 
-## Quick Start
+## 🧰 Requirements
 
-1. **Clone the repository**
+- Python 3.11 (or compatible)  
+- `pyvesc` and `pyserial` installed in a virtual environment  
+- Julia 1.10 (or newer) + `PyCall` package  
+- A VESC connected via USB (e.g. `/dev/ttyACM1`), with appropriate permissions  
+
+---
+
+## ⚙️ Setup Instructions
 
 ```bash
-git clone https://github.com/chumnap2/Stage8MotorBridge.git
-cd Stage8MotorBridge
-2Run the full setup, server, and client in one command
-chmod +x setup_and_run.sh
-./setup_and_run.sh
-This will:
+# 1. Create and activate Python virtual environment
+python3 -m venv fprime-venv
+source fprime-venv/bin/activate
 
-Create or activate the Python virtual environment (fprime-venv)
+# 2. Install required Python packages
+pip install -r requirements.txt
 
-Install Python dependencies (crccheck, pyserial)
+# 3. In Julia, install PyCall if needed
+julia -e 'using Pkg; Pkg.add("PyCall")'
+🚀 Usage
+Quick test (direct Julia control):
+using PyCall
+include("src/MotorBridgeServer.jl")   # or test/vesc_test.jl
 
-Configure Julia packages and PyCall
+# Example: spin motor at 20%
+set_duty(0.2)
+sleep(2)
+set_duty(0.0)  # stop
+Run full server (once implemented):
+julia src/MotorBridgeServer.jl
+Then send commands over TCP (or extend with your own control logic).
+📦 Repository Layout
+Stage8MotorBridge/
+├── src/                # main Julia code
+│   └── MotorBridgeServer.jl
+├── test/               # small test scripts
+│   └── vesc_test.jl
+├── requirements.txt
+├── README.md
+├── .gitignore
 
-Start MotorBridgeServer.jl
-
-Launch the Python client automatically
-Using the Motor Client
-
-Once the client starts, you can send motor commands:
-> enable      # Enable motor
-> duty 0.3    # Set duty cycle (0.0 to 1.0)
-> stop        # Stop the motor
-Notes
-
-Use Ctrl+C to stop the Julia server or close the client terminal
-
-Ensure the motor is safely mounted before sending commands
-
-The server listens on TCP 127.0.0.1:5555 by default
-
-Release v1.2
-
-Fully automated setup_and_run.sh
-
-Frozen Python dependencies in requirements.txt
-
-Verified motor spin via client commands
-
-Updated README with one-command instructions

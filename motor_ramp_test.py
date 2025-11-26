@@ -1,40 +1,43 @@
 #!/usr/bin/env python3
-from pyvesc.VESC import VESC
+import serial
 import time
+from pyvesc import SetDutyCycle, encode_request
 
-# ---- CONFIG ----
 PORT = "/dev/ttyACM1"
-RAMP_STEPS = 10      # number of ramp steps
-RAMP_DELAY = 0.2     # seconds between ramp steps
-TARGET_DUTY = 0.5    # final duty cycle (0.0 - 1.0)
-HOLD_TIME = 2        # seconds to hold target duty
+BAUD = 115200
 
-# ---- CONNECT ----
+RAMP_STEPS = 10
+RAMP_DELAY = 0.2
+TARGET_DUTY = 0.5
+HOLD_TIME = 2
+
 print(f"🔌 Connecting to VESC at {PORT} ...")
-vesc = VESC(PORT)
+ser = serial.Serial(PORT, BAUD, timeout=0.1)
 print("✅ Connected to VESC")
 
-# ---- SAFELY RAMP UP ----
+def send_duty(duty):
+    msg = SetDutyCycle(duty)
+    packet = encode_request(msg)
+    ser.write(packet)
+
 print("🟢 Ramping up motor...")
 for i in range(1, RAMP_STEPS + 1):
     duty = (TARGET_DUTY / RAMP_STEPS) * i
     print(f"➡️ Setting duty: {duty:.2f}")
-    vesc.set_duty_cycle(duty)
+    send_duty(duty)
     time.sleep(RAMP_DELAY)
 
-# ---- HOLD TARGET DUTY ----
 print(f"⏸ Holding duty {TARGET_DUTY:.2f} for {HOLD_TIME}s")
 time.sleep(HOLD_TIME)
 
-# ---- SAFELY RAMP DOWN ----
 print("🔻 Ramping down motor...")
 for i in reversed(range(RAMP_STEPS + 1)):
     duty = (TARGET_DUTY / RAMP_STEPS) * i
     print(f"➡️ Setting duty: {duty:.2f}")
-    vesc.set_duty_cycle(duty)
+    send_duty(duty)
     time.sleep(RAMP_DELAY)
 
-# ---- STOP MOTOR ----
 print("🔴 Stopping motor")
-vesc.set_duty_cycle(0.0)
+send_duty(0.0)
 print("✅ Test complete")
+ser.close()
