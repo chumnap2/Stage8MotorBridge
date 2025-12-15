@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Base directory for the test driver
-BASE_DIR=~/fprime/Stage8MotorBridge/TestDriver
+BASE_DIR=~/fprime/FPrimeMotorBridge/TestDriver
 mkdir -p $BASE_DIR/src
 
 # Create main.cpp

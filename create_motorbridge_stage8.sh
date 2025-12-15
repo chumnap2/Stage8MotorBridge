@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Base directory for the component
-BASE_DIR=~/fprime/Stage8MotorBridge/Components/MotorBridgeComponent
+BASE_DIR=~/fprime/FPrimeMotorBridge/Components/MotorBridgeComponent
 
 # Create folder structure
 mkdir -p $BASE_DIR/fpp

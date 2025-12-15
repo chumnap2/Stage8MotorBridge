@@ -4,9 +4,9 @@ include("${CMAKE_CURRENT_LIST_DIR}/../../../fprime/cmake/FPrime.cmake")
 # Define this as an F´ component
 fprime_add_component(
     SOURCES
-        Stage8MotorBridge.cpp
+        FPrimeMotorBridge.cpp
     HEADERS
-        Stage8MotorBridge.hpp
+        FPrimeMotorBridge.hpp
     DEPENDS
         Fw/Types
         Fw/Obj

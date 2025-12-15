@@ -1,89 +1,78 @@
-using Sockets, PyCall, Dates
+using Sockets
+using PyCall
+using Base.Threads: @spawn, sleep
 
-# -------------------------
-# Python imports
-serial = pyimport("serial")
-pyvesc = pyimport("pyvesc")
-SetDutyCycle = pyvesc.messages.setters.SetDutyCycle
-encode = pyvesc.encode
+println("🚀 Starting Julia MotorBridgeServer...")
 
-# -------------------------
-# Detect VESC port
-ACM_ports = filter(p -> occursin("ttyACM", p), readdir("/dev", join=true))
-VESC_PORT = !isempty(ACM_ports) ? first(ACM_ports) : "/dev/ttyACM0"
-println("🔌 Connecting to VESC at $VESC_PORT ...")
-port = serial.Serial(VESC_PORT, 115200)
-println("✅ VESC connected on $VESC_PORT")
+# Initialize VESC via Python
+vesc_mod = pyimport("vescminimal_nov20")
+vesc = vesc_mod.VESC("/dev/ttyACM1")
+println("✅ VESC object created and motor initialized at 0 duty")
 
-function set_duty(d::Float64)
-    vesc_duty = Int(round(clamp(d, -1.0, 1.0) * 100000))
-    msg = SetDutyCycle(vesc_duty)
-    packet = encode(msg)
-    buf = Vector{UInt8}(packet)
-    pycall(port.write, PyAny, PyCall.pybytes(buf))
-    println("➡️ Duty set to $d at $(Dates.format(now(), "HH:MM:SS.sss"))")
-end
-
-# -------------------------
-# TCP server
+# Start TCP server
 server = listen(ip"127.0.0.1", 5555)
 println("✅ TCP MotorBridgeServer listening on 127.0.0.1:5555")
-println("⏳ Waiting for client connection...")
-client = accept(server)
-println("✅ Client connected: $client")
+sock = accept(server)
+println("✅ Client connected: $sock")
 
-# -------------------------
-# Shared state
-global running = false
-global target_duty = 0.0
+# Global duty
+global last_duty = 0.0
+global running = true
 
-# -------------------------
-# Motor loop thread
-motor_thread = Threads.@spawn begin
-    while true
-        if running
-            set_duty(target_duty)   # continuously apply last target duty
+# Thread: continuously apply last duty to VESC
+@spawn begin
+    while running
+        try
+            vesc.set_duty_cycle(last_duty)
+        catch e
+            println("❌ Error sending duty: $e")
         end
-        sleep(0.05)  # 20 Hz update
+        sleep(0.05)  # 50 ms update rate
     end
 end
 
-# -------------------------
-# Command loop
-try
-    while true
-        data = readline(client)
-        println("📥 Command received: $data")
-        cmd = lowercase(strip(data))
-
-        if cmd == "enable"
-            global running
-            running = true
-            println("⚡ Motor ENABLED")
-
-        elseif startswith(cmd, "duty ")
-            parts = split(cmd, " ")
-            if length(parts) == 2
-                global target_duty
-                target_duty = parse(Float64, parts[2])
-            else
-                println("⚠️ Invalid duty command format")
-            end
-
-        elseif cmd == "stop"
-            global running
-            running = false
-            set_duty(0.0)
-            println("🛑 Motor DISABLED")
-            break
-
-        else
-            println("⚠️ Unknown command: $cmd")
+# Main command loop
+while true
+    cmd = ""
+    try
+        cmd = readline(sock) |> strip
+        if isempty(cmd)
+            continue
         end
+    catch e
+        println("⚠️ Client disconnected or error: $e")
+        break
     end
-finally
-    println("✅ MotorBridgeServer exiting cleanly")
-    set_duty(0.0)
-    close(client)
-    close(server)
+
+    println("📥 Command received: $cmd")
+
+    if cmd == "enable"
+        println("⚡ Enable received (no VESC action required)")
+
+    elseif startswith(cmd, "duty")
+        try
+            duty_val = parse(Float64, split(cmd)[2])
+            global last_duty
+            last_duty = duty_val
+            println("➡️ Updated last_duty to $last_duty")
+        catch e
+            println("❌ Failed to parse duty: $e")
+        end
+
+    elseif cmd == "stop"
+        global last_duty
+        last_duty = 0.0
+        println("🔴 Stop command received, duty set to 0")
+
+    elseif cmd == "exit"
+        println("🛑 Exit command received. Shutting down server...")
+        global running = false
+        break
+
+    else
+        println("⚠️ Unknown command: $cmd")
+    end
 end
+
+close(sock)
+println("🛑 MotorBridgeServer exiting...")

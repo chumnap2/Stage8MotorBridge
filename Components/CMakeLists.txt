@@ -1,1 +1,4 @@
-add_fprime_subdirectory(MotorBridge)
+add_fprime_subdirectory(FPrimeMotorBridge)
+add_fprime_subdirectory(FPrimeMotorBridgeComponent)
+
+
