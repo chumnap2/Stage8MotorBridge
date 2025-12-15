@@ -1,0 +1,9 @@
+<?xml version="1.0"?>
+<components>
+    <component name="MotorBridge" type="active">
+        <ports>
+            <port name="cmd" type="input"/>
+            <port name="status" type="output"/>
+        </ports>
+    </component>
+</components>

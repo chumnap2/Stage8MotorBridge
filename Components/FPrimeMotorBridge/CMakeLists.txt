@@ -1,0 +1,11 @@
+register_fprime_module(MotorBridge
+    AUTOCODER_INPUTS
+        "${CMAKE_CURRENT_LIST_DIR}/MotorBridgeComponentAi.xml"
+    SOURCES
+        "${CMAKE_CURRENT_LIST_DIR}/MotorBridge.cpp"
+        "${CMAKE_CURRENT_LIST_DIR}/MotorController.cpp"
+    HEADERS
+        "${CMAKE_CURRENT_LIST_DIR}/MotorBridge.hpp"
+        "${CMAKE_CURRENT_LIST_DIR}/MotorController.hpp"
+)
+register_fprime_library(MotorBridge)
