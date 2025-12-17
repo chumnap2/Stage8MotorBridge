@@ -35,3 +35,10 @@ __pycache__/
 Thumbs.db
 + .vscode/
 + *.tmp
+# Ignore Python virtual environments
+fprime-venv/
+fprime-venv-py311/
+
+# Ignore local F prime frameworks (relative paths)
+fprime/
+fprime-framework/
