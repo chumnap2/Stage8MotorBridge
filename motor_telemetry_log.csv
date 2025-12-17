@@ -1,0 +1,7 @@
+command,telemetry
+duty 0.00,"{""time"":""2025-12-08 20:54:34.752"",""duty"":0.0,""rpm"":null,""enabled"":false,""current"":null}"
+duty 0.10,"{""time"":""2025-12-08 20:54:34.854"",""duty"":0.0,""rpm"":null,""enabled"":false,""current"":null}"
+duty 0.20,"{""time"":""2025-12-08 20:54:34.957"",""duty"":0.0,""rpm"":null,""enabled"":false,""current"":null}"
+duty 0.30,"{""time"":""2025-12-08 20:54:35.06"",""duty"":0.0,""rpm"":null,""enabled"":false,""current"":null}"
+duty 0.40,"{""time"":""2025-12-08 20:54:35.163"",""duty"":0.0,""rpm"":null,""enabled"":false,""current"":null}"
+duty 0.50,"{""time"":""2025-12-08 20:54:35.267"",""duty"":0.0,""rpm"":null,""enabled"":false,""current"":null}"

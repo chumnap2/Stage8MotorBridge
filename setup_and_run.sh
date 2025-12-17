@@ -1,61 +1,87 @@
 #!/bin/bash
-# Stage8MotorBridge full setup and run script
-# Run from project root
+# -------------------------------------------------------------------
+# setup_and_run.sh
+# Fully automated Stage 8: MotorBridge + F´ components + initial motor spin
+# -------------------------------------------------------------------
 
-echo "🚀 Starting full Stage8MotorBridge setup..."
+set -e  # Exit on any error
 
-# --- Step 1: Python virtual environment ---
-if [ ! -d "fprime-venv" ]; then
-    echo "🐍 Creating Python venv..."
-    python3 -m venv fprime-venv
+echo "🚀 Stage 8 Setup & Run Starting..."
+
+# -------------------------------------------------------------------
+# 1️⃣ Activate Python virtual environment
+# -------------------------------------------------------------------
+VENV_DIR="fprime-venv-py311"
+
+if [ -d "$VENV_DIR" ]; then
+    echo "⚡ Activating Python virtual environment $VENV_DIR..."
+    source "$VENV_DIR/bin/activate"
 else
-    echo "🐍 Python venv already exists."
+    echo "⚠️ Virtual environment $VENV_DIR not found! Please create it first."
+    exit 1
 fi
 
-echo "Activating Python venv..."
-source fprime-venv/bin/activate
+# -------------------------------------------------------------------
+# 2️⃣ Ensure Julia packages are ready
+# -------------------------------------------------------------------
+echo "⚡ Instantiating Julia environment..."
+julia --project=. -e 'using Pkg; Pkg.instantiate()'
 
-# --- Step 2: Install Python dependencies (excluding local pyvesc) ---
-if [ -f requirements.txt ]; then
-    echo "Installing Python packages..."
-    pip install --upgrade pip
-    # install only real dependencies, skip local pyvesc
-    grep -v "pyvesc" requirements.txt | xargs -n 1 pip install
-else
-    echo "⚠️ requirements.txt not found, skipping Python package installation."
+# -------------------------------------------------------------------
+# 3️⃣ Export local repo for Python imports
+# -------------------------------------------------------------------
+export PYTHONPATH=$PWD:$PYTHONPATH
+echo "⚡ PYTHONPATH set to include local repo"
+
+# -------------------------------------------------------------------
+# 4️⃣ Kill any previous MotorBridgeServer on port 5555
+# -------------------------------------------------------------------
+EXISTING_PID=$(lsof -ti :5555 || true)
+if [ -n "$EXISTING_PID" ]; then
+    echo "⚠️ Killing previous MotorBridgeServer2 process (PID=$EXISTING_PID)..."
+    kill -9 $EXISTING_PID
 fi
 
-# --- Step 3: Julia environment ---
-echo "📦 Setting up Julia packages..."
-julia -e '
-using Pkg
-Pkg.activate(".")
-Pkg.instantiate()
-'
+# -------------------------------------------------------------------
+# 5️⃣ Launch MotorBridgeServer2.jl in background
+# -------------------------------------------------------------------
+echo "⚡ Launching MotorBridgeServer2.jl..."
+nohup julia MotorBridgeServer2.jl > motorbridge_server.log 2>&1 &
+MOTOR_PID=$!
+echo "✅ MotorBridgeServer2 launched (PID=$MOTOR_PID)"
 
-# --- Step 4: Set PYTHONPATH for local Python modules ---
-export PYTHONPATH="$PWD/pyvesc_working:$PWD"
-echo "PYTHONPATH set to $PYTHONPATH"
-
-# --- Step 5: Ensure PyCall uses correct Python ---
-echo "Configuring PyCall to use Python venv..."
-julia -e '
-ENV["PYTHON"] = "'$PWD'/fprime-venv/bin/python"
-using Pkg
-Pkg.build("PyCall")
-'
-
-# --- Step 6: Start MotorBridgeServer in background ---
-echo "Starting Julia MotorBridgeServer..."
-julia MotorBridgeServer.jl &
-
-# Give server a few seconds to start
+# Wait a moment to ensure server is listening
 sleep 2
 
-# --- Step 7: Launch Python client ---
-echo "Starting Python motor client..."
-python3 "$PWD/motor_client.py"
+# -------------------------------------------------------------------
+# 6️⃣ Send initial safe motor spin (2% duty)
+# -------------------------------------------------------------------
+echo "⚡ Sending initial safe duty=0.02 to MotorBridgeServer..."
+echo "duty 0.02" | nc 127.0.0.1 5555
+echo "✅ Initial spin command sent"
 
-# --- Done ---
-echo "✅ Stage8MotorBridge setup and run complete!"
-echo "Use Ctrl+C in the server terminal to stop the MotorBridgeServer."
+# -------------------------------------------------------------------
+# 7️⃣ Launch F´ components
+# -------------------------------------------------------------------
+echo "⚡ Launching Stage 8 F´ components..."
+nohup fprime-util run -c Components/FPrimeMotorBridgeComponent/ > fprime_components.log 2>&1 &
+FPRIME_PID=$!
+echo "✅ F´ components launched (PID=$FPRIME_PID)"
+
+# -------------------------------------------------------------------
+# 8️⃣ Trap Ctrl+C and exit for clean shutdown
+# -------------------------------------------------------------------
+cleanup() {
+    echo "🛑 Shutdown requested, stopping Stage 8 processes..."
+    kill $MOTOR_PID $FPRIME_PID 2>/dev/null || true
+    wait $MOTOR_PID $FPRIME_PID 2>/dev/null || true
+    echo "✅ Stage 8 shutdown complete."
+    exit 0
+}
+trap cleanup SIGINT SIGTERM
+
+# -------------------------------------------------------------------
+# 9️⃣ Tail logs for monitoring
+# -------------------------------------------------------------------
+echo "🔍 Tailing MotorBridgeServer2 log. Ctrl+C to stop."
+tail -f motorbridge_server.log

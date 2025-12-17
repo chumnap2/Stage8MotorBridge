@@ -69,7 +69,8 @@ end
 
 # --- TCP server ---
 function start_tcp_server(host="127.0.0.1", port=12345)
-    server = listen(ip"127.0.0.1", port)
+    #server = listen(ip"127.0.0.1", port)
+    server = listen(ip"0.0.0.0", 12345)  # instead of 127.0.0.1
     println("[Julia] MotorBridge TCP server listening on $host:$port")
 
     while true

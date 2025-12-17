@@ -1,0 +1,35 @@
+function handle_command(line, vesc)
+    tokens = split(strip(line))
+    if isempty(tokens)
+        return
+    end
+
+    cmd = uppercase(tokens[1])
+
+    if cmd == "SET" && length(tokens) == 3
+        param = uppercase(tokens[2])
+        val = parse(Float64, tokens[3])
+
+        if param == "DUTY"
+            val = clamp(val, 0.0, 0.1)
+            println("Would set DUTY to ", val)
+
+        elseif param == "CURRENT"
+            val = clamp(val, 0.0, 10.0)
+            println("Would set CURRENT to ", val)
+
+        elseif param == "RPM"
+            rpm = Int(clamp(val, 0, 10000))
+            println("Would set RPM to ", rpm)
+
+        else
+            println("Unknown SET parameter:", param)
+        end
+
+    elseif cmd == "STOP"
+        println("Would stop motor")
+
+    else
+        println("Unknown command:", line)
+    end
+end
