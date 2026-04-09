@@ -5,8 +5,10 @@ using Base.Threads: @spawn, sleep
 println("🚀 Starting Julia MotorBridgeServer...")
 
 # Initialize VESC via Python
+using PyCall
 vesc_mod = pyimport("vescminimal_nov20")
-vesc = vesc_mod.VESC("/dev/ttyACM1")
+println("🚀 Starting Julia MotorBridgeServer...")
+vesc = vesc_mod.VESC("/dev/vesc")
 println("✅ VESC object created and motor initialized at 0 duty")
 
 # Start TCP server

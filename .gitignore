@@ -42,3 +42,9 @@ fprime-venv-py311/
 # Ignore local F prime frameworks (relative paths)
 fprime/
 fprime-framework/
+# Python cache
+__pycache__/
+*.pyc
+
+# Backup folders
+pyvesc_backup/
