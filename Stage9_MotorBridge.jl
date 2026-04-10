@@ -11,7 +11,7 @@ const VESC_BAUD = 115200
 println("[Julia] Connecting to VESC on $VESC_PORT ...")
 ser = serial.Serial(VESC_PORT, VESC_BAUD)
 
-function set_duty(duty::Float64)
+function set_duty_cycle(duty::Float64)
     duty = clamp(duty, 0.0, 1.0)
     duty_int = Int(round(duty * 100000))
     try
@@ -42,13 +42,13 @@ function ramp_loop()
             elseif current > target_duty[]
                 current = max(current - step, target_duty[])
             end
-            set_duty(current)
+            set_duty_cycle(current)
         else
             if current > 0
                 current = max(current - step, 0.0)
-                set_duty(current)
+                set_duty_cycle(current)
             else
-                set_duty(0.0)
+                set_duty_cycle(0.0)
             end
         end
         sleep(delay)

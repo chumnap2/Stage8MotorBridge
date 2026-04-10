@@ -9,7 +9,7 @@ using PyCall
 println("[Julia] Connecting to VESC on /dev/ttyACM0 ...")
 ser = serial.Serial("/dev/ttyACM0", 115200)
 
-function set_duty(duty::Float64)
+function set_duty_cycle(duty::Float64)
     duty = clamp(duty, 0.0, 1.0)
     duty_int = Int(round(duty * 100000))
     try
@@ -45,14 +45,14 @@ function ramp_loop()
                 elseif current > target_duty[]
                     current = max(current - step, target_duty[])
                 end
-                set_duty(current)
+                set_duty_cycle(current)
             else
                 if current > 0
                     current = max(current - step, 0.0)
-                    set_duty(current)
+                    set_duty_cycle(current)
                 else
                     # keep motor off
-                    set_duty(0.0)
+                    set_duty_cycle(0.0)
                 end
             end
 
@@ -61,7 +61,7 @@ function ramp_loop()
     catch e
         println("[EMERGENCY] Ctrl+C or error in ramp loop, stopping motor... ", e)
         try
-            set_duty(0.0)
+            set_duty_cycle(0.0)
         catch
         end
         rethrow(e)

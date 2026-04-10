@@ -35,7 +35,7 @@ function vesc_packet(payload::Vector{UInt8})
 end
 
 
-function set_duty(vesc, duty)
+function set_duty_cycle(vesc, duty)
     value = Int32(duty * 100_000)
     payload = UInt8[5]
     for shift in (24,16,8,0)
@@ -51,12 +51,12 @@ end
 sleep(1)
 
 println("⚡ Spinning motor at 5%...")
-set_duty(vesc, 0.05)
+set_duty_cycle(vesc, 0.05)
 
 sleep(5)
 
 println("🛑 Stopping motor...")
-set_duty(vesc, 0.0)
+set_duty_cycle(vesc, 0.0)
 
 close(vesc)
 println("Done.")

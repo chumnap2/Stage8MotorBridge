@@ -10,7 +10,7 @@ encode = pyvesc.encode
 # Open serial port
 port = serial.Serial("/dev/ttyACM1", 115200)
 
-function set_duty(d::Float64)
+function set_duty_cycle(d::Float64)
     # clamp to -1.0..1.0 and convert to VESC integer units
     vesc_duty = Int(round(clamp(d, -1.0, 1.0) * 100000))  # integer required!
     
