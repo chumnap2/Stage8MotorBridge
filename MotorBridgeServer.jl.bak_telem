@@ -1,0 +1,219 @@
+using Sockets
+using Base.Threads: ReentrantLock
+
+include("VESCDriver.jl")
+using .VESCDriver
+
+# =========================
+# 🌍 GLOBAL STATE
+# =========================
+global vesc = nothing
+global vesc_lock = ReentrantLock()
+
+global last_duty = 0.0
+global last_rpm = 0.0
+global last_current = 0.0
+global last_voltage = 0.0
+global max_duty_rate = 0.01
+global target_rpm = 0.0
+global control_enabled = false
+
+global running = true
+
+# =========================
+# 🔌 CONNECT TO VESC
+# =========================
+function connect_vesc(port="/dev/vesc")
+    global vesc
+
+    try
+        vesc = VESCDriver.connect(port, 115200)
+        println("✅ VESC connected on ", port)
+
+        println("🔐 Arming VESC...")
+        VESCDriver.arm!(vesc)
+
+        println("✅ VESC ready")
+    catch e
+        println("❌ Failed to connect VESC: ", e)
+        vesc = nothing
+    end
+end
+
+# =========================
+# ⚡ SEND DUTY (LOCKED)
+# =========================
+function send_duty(duty)
+    global vesc, vesc_lock
+
+    if vesc === nothing
+        return
+    end
+
+    lock(vesc_lock) do
+        try
+            if control_enabled
+                error = target_rpm - last_rpm
+
+                k = 0.00001
+
+                change = k * error
+                change = clamp(change, -max_duty_rate, max_duty_rate)
+
+                global last_duty
+                last_duty += change
+                k = 0.00001
+                global last_duty
+                last_duty += k * error
+                last_duty = clamp(last_duty, -0.2, 0.2)
+            end
+
+            VESCDriver.set_duty(vesc, duty)
+            println("⚡ DUTY SENT: ", duty)
+        catch e
+            println("❌ VESC send error: ", e)
+        end
+    end
+end
+
+# =========================
+# 🔁 MOTOR LOOP (20 Hz)
+# =========================
+function motor_loop()
+    println("🔁 Motor loop running (20 Hz)")
+
+    global last_duty, running
+
+    while running
+        send_duty(last_duty)
+        sleep(0.05)
+    end
+end
+
+# =========================
+# 📡 TELEMETRY LOOP (SAFE 0.3 Hz)
+# =========================
+# SAFE TEMP TELEMETRY (NO DRIVER CALL)
+                    
+# =========================
+# 📡 TCP HANDLER
+# =========================
+function handle_client(sock)
+    println("🔌 Client connected")
+
+    global last_duty
+
+    try
+        while isopen(sock)
+            line = readline(sock)
+
+            if isempty(line)
+                continue
+            end
+
+            println("📥 Received: ", line)
+            parts = split(line)
+
+            if parts[1] == "duty"
+                duty = parse(Float64, parts[2])
+
+                # Safety clamp
+                duty = clamp(duty, -0.1, 0.1)
+
+                last_duty = duty
+                println("🎯 Updated duty: ", duty)
+
+                write(sock, "OK\n")
+
+            elseif parts[1] == "stop"
+
+            elseif parts[1] == "rpm"
+                global target_rpm, control_enabled
+                target_rpm = parse(Float64, parts[2])
+                control_enabled = true
+
+                println("🎯 Target RPM: ", target_rpm)
+                write(sock, "RPM SET\n")
+                last_duty = 0.0
+                println("🛑 STOP command received")
+
+                write(sock, "STOPPED\n")
+
+            else
+                write(sock, "UNKNOWN\n")
+            end
+        end
+    catch e
+        println("❌ Client error: ", e)
+    end
+
+    close(sock)
+    println("🔌 Client disconnected")
+end
+
+# =========================
+# 📡 SERVER
+# =========================
+function start_server(host="127.0.0.1", port=5555)
+    server = listen(IPv4(host), port)
+    println("📡 Listening on $host:$port")
+
+    while true
+        sock = accept(server)
+        @async handle_client(sock)
+    end
+end
+
+# =========================
+# 🚀 MAIN
+# =========================
+function main()
+    println("🚀 Starting MotorBridgeServer (CLEAN SAFE VERSION)")
+
+    connect_vesc()
+
+    if vesc === nothing
+        println("❌ Cannot start without VESC")
+        return
+    end
+
+    @async motor_loop()
+    # @async telemetry_loop()
+
+    start_server()
+end
+
+main()
+
+# =========================
+# 📡 TELEMETRY LOOP (5 Hz)
+# =========================
+function telemetry_loop()
+    # telemetry fallback safety mode
+    if vesc === nothing
+        println("📊 RPM=0 | I=0 | V=0 | DUTY=" * string(last_duty))
+    end
+    println("📡 Telemetry loop running (5 Hz)")
+
+    global vesc, last_rpm, last_current, last_voltage, last_duty
+
+    while true
+        try
+            if vesc !== nothing
+
+                # 🔥 Use driver-level API
+                v = VESCDriver.get_mc_values(vesc)
+
+                last_rpm = v.rpm
+                last_current = v.current_motor
+                last_voltage = v.v_in
+
+                println("📊 RPM=$(last_rpm) | I=$(last_current) | V=$(last_voltage) | DUTY=$(last_duty)")
+            end
+        catch e
+            println("❌ Telemetry error: ", e)
+        end
+
+        sleep(0.2)
+    end
+end

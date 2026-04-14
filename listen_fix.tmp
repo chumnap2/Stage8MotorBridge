@@ -1,0 +1,5 @@
+
+# FIXED SAFE SERVER BIND (DO NOT TOUCH)
+server = listen(ip"127.0.0.1", 5555)
+println("📡 TCP listening on 127.0.0.1:5555")
+

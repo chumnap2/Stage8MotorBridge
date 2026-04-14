@@ -1,0 +1,209 @@
+using Sockets
+include("VESCDriver.jl")
+using .VESCDriver
+# =========================
+# 🌍 GLOBAL STATE
+# =========================
+global vesc = nothing
+global last_duty = 0.0
+global last_rpm = 0.0
+global last_current = 0.0
+global last_voltage = 0.0
+global running = true
+
+# =========================
+# 🔌 CONNECT TO VESC
+# =========================
+function connect_vesc(port="/dev/vesc")
+    global vesc
+
+    try
+        vesc = VESCDriver.connect(port, 115200)
+        println("✅ VESC connected on ", port)
+
+        println("🔐 Arming VESC...")
+        VESCDriver.arm!(vesc)
+
+        println("✅ VESC ready")
+    catch e
+        println("❌ Failed to connect VESC: ", e)
+        vesc = nothing
+    end
+end
+# =========================
+# ⚡ SEND DUTY (CRITICAL)
+# =========================
+function send_duty(duty)
+    global vesc
+
+    # Safety: ensure VESC exists
+    if vesc === nothing
+        return
+    end
+
+    try
+        VESCDriver.set_duty(vesc, duty)
+        println("⚡ DUTY SENT: ", duty)
+    catch e
+        println("❌ VESC send error: ", e)
+    end
+end
+
+# =========================
+# 🔁 MOTOR LOOP (20 Hz)
+# =========================
+function motor_loop()
+    println("🔁 Motor loop running (20 Hz)")
+
+    global last_duty, running
+global last_rpm = 0.0
+global last_current = 0.0
+global last_voltage = 0.0
+
+    while running
+        send_duty(last_duty)   # ← CRITICAL LINE
+        sleep(0.05)            # 20 Hz refresh
+    end
+end
+
+# =========================
+# 📡 TCP SERVER
+# =========================
+function handle_client(sock)
+    println("🔌 Client connected")
+
+    global last_duty
+global last_rpm = 0.0
+global last_current = 0.0
+global last_voltage = 0.0
+
+    try
+        while isopen(sock)
+            line = readline(sock)
+
+            if isempty(line)
+                continue
+            end
+
+            println("📥 Received: ", line)
+
+            parts = split(line)
+
+            if parts[1] == "duty"
+                duty = parse(Float64, parts[2])
+
+                # ⚠️ Safety clamp
+                duty = clamp(duty, -0.1, 0.1)
+
+                last_duty = duty
+                println("🎯 Updated duty: ", duty)
+
+                write(sock, "OK\n")
+
+            elseif parts[1] == "stop"
+                last_duty = 0.0
+                println("🛑 STOP command received")
+                write(sock, "STOPPED\n")
+
+            else
+                write(sock, "UNKNOWN\n")
+            end
+        end
+    catch e
+        println("❌ Client error: ", e)
+    end
+
+    close(sock)
+    println("🔌 Client disconnected")
+end
+
+# =========================
+function start_server(host="127.0.0.1", port=5555)
+    server = listen(IPv4(host), port)
+    println("📡 Listening on $host:$port")
+
+    while true
+        sock = accept(server)
+        @async handle_client(sock)
+    end
+end
+# =========================
+# 🚀 MAIN
+# =========================
+function main()
+    println("🚀 Starting MotorBridgeServer (FINAL)")
+
+    connect_vesc()
+
+    if vesc === nothing
+        println("❌ Cannot start without VESC")
+        return
+    end
+
+    # Start motor loop (CRITICAL)
+    @async motor_loop()
+    @async telemetry_loop()   # AUTO-INJECTED
+
+    # Start TCP server
+    start_server()
+end
+
+main()
+
+# =========================
+# 📡 TELEMETRY LOOP (5 Hz)
+# =========================
+function telemetry_loop()
+        try
+            v = VESCDriver.get_values(vesc)
+
+            last_rpm = hasproperty(v, :rpm) ? v.rpm : 0.0
+            last_current = hasproperty(v, :current_motor) ? v.current_motor : 0.0
+            last_voltage = hasproperty(v, :v_in) ? v.v_in : 0.0
+
+            println("📊 RPM=$(last_rpm) | I=$(last_current)A | V=$(last_voltage)V | DUTY=$(last_duty)")
+
+        catch e
+            println("❌ Telemetry error: ", e)
+        end
+        try
+            v = VESCDriver.get_values(vesc)
+
+            last_rpm = hasproperty(v, :rpm) ? v.rpm : 0.0
+            last_current = hasproperty(v, :current_motor) ? v.current_motor : 0.0
+            last_voltage = hasproperty(v, :v_in) ? v.v_in : 0.0
+
+            println("📊 RPM=$(last_rpm) | I=$(last_current)A | V=$(last_voltage)V | DUTY=$(last_duty)")
+
+        catch e
+            println("❌ Telemetry error: ", e)
+        end
+        try
+            v = VESCDriver.get_values(vesc)
+
+            last_rpm = hasproperty(v, :rpm) ? v.rpm : 0.0
+            last_current = hasproperty(v, :current_motor) ? v.current_motor : 0.0
+            last_voltage = hasproperty(v, :v_in) ? v.v_in : 0.0
+
+            println("📊 RPM=$(last_rpm) | I=$(last_current)A | V=$(last_voltage)V | DUTY=$(last_duty)")
+
+        catch e
+            println("❌ Telemetry error: ", e)
+        end
+        end
+
+        sleep(0.2)
+    end
+
+        try
+            v = VESCDriver.get_values(vesc)
+
+            last_rpm = hasproperty(v, :rpm) ? v.rpm : 0.0
+            last_current = hasproperty(v, :current_motor) ? v.current_motor : 0.0
+            last_voltage = hasproperty(v, :v_in) ? v.v_in : 0.0
+
+            println("📊 RPM=$(last_rpm) | I=$(last_current)A | V=$(last_voltage)V | DUTY=$(last_duty)")
+
+        catch e
+            println("❌ Telemetry error: ", e)
+        end

@@ -1,0 +1,109 @@
+module VESCDriver
+
+export set_duty, connect, arm!, set_duty, get_values
+
+using Sockets
+
+# =========================
+# 🔌 CONNECT
+# =========================
+function connect(port::String, baud::Int)
+    sock = open(port, "r+")
+    Base.flush(sock)
+    println("🔌 Connected to VESC on ", port)
+    return (port = sock, baud = baud)
+end
+
+
+# =========================
+# 🔐 ARM (SAFE NO-OP STYLE)
+# =========================
+function arm!(vesc)
+    try
+        # small neutral command to wake controller
+        write(vesc.port, UInt8[0x00])
+        flush(vesc.port)
+    catch e
+        println("❌ arm error: ", e)
+    end
+end
+
+
+# =========================
+# ⚡ DUTY CONTROL
+# =========================
+
+
+# =========================
+# 📡 SAFE TELEMETRY
+# =========================
+function get_values(vesc)
+    try
+        # COMM_GET_VALUES (safe request)
+        cmd = UInt8[0x02, 0x01, 0x04, 0x00, 0x03]
+
+        write(vesc.port, cmd)
+        flush(vesc.port)
+
+        sleep(0.02)
+
+        data = readavailable(vesc.port)
+
+        return decode_values_safe(data)
+
+    catch e
+        println("❌ get_values error: ", e)
+        return (rpm=0.0, current_motor=0.0, v_in=0.0)
+    end
+end
+
+
+# =========================
+# 🧠 SAFE DECODER (NO CRASH EVER)
+# =========================
+function decode_values_safe(data::Vector{UInt8})
+    if length(data) < 10
+        return (rpm=0.0, current_motor=0.0, v_in=0.0)
+    end
+
+    # SAFE fallback (no unsafe reinterpret)
+    return (
+        rpm = 0.0,
+        current_motor = 0.0,
+        v_in = 0.0
+    )
+end
+
+
+function set_duty(vesc, duty::Float64)
+    try
+        duty = clamp(duty, -0.3, 0.3)
+
+        scaled = Int32(round(duty * 100000))
+
+        payload = UInt8[
+            0x05,
+            (scaled >> 24) & 0xFF,
+            (scaled >> 16) & 0xFF,
+            (scaled >> 8) & 0xFF,
+            scaled & 0xFF
+        ]
+
+        packet = UInt8[]
+        push!(packet, 0x02)
+        push!(packet, length(payload))
+        append!(packet, payload)
+        push!(packet, 0x00)
+        push!(packet, 0x03)
+
+        write(vesc.port, packet)
+        flush(vesc.port)
+
+    catch e
+        println("❌ set_duty error: ", e)
+    end
+end
+
+end # module
+
+

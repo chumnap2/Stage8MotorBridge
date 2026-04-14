@@ -14,18 +14,18 @@ function connect_vesc()
 end
 
 function motor_loop()
-    println("🔁 Motor loop running (20 Hz)")
+    println("🔁 motor loop running")
 
-    global last_duty, vesc, running
+    global vesc, last_duty
 
-    while running
-        if vesc !== nothing
-            try
+    while true
+        try
+            if vesc !== nothing
                 VESCDriver.set_duty(vesc, last_duty)
                 println("⚡ DUTY SENT: ", last_duty)
-            catch e
-                println("❌ motor error: ", e)
             end
+        catch e
+            println("❌ motor error: ", e)
         end
 
         sleep(0.05)
@@ -39,7 +39,7 @@ function main()
 
     @async motor_loop()
 
-    server = Sockets.listen(ip"127.0.0.1", 5555)
+    server = Sockets.listen("127.0.0.1", 5555)
     println("📡 listening on 5555")
 
     sock = Sockets.accept(server)

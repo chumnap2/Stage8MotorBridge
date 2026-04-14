@@ -1,3 +1,15 @@
+#!/bin/bash
+set -e
+
+FILE="VESCDriver.jl"
+
+echo "🚀 REBUILDING CLEAN VESC DRIVER"
+
+# backup broken version
+cp "$FILE" "${FILE}.bak_broken_$(date +%s)" 2>/dev/null || true
+
+# overwrite with clean version
+cat > "$FILE" << 'JULIA'
 
 module VESCDriver
 
@@ -67,3 +79,6 @@ function set_duty(vesc::VESC, duty::Float64)
 end
 
 end # module
+JULIA
+
+echo "✅ VESCDriver rebuilt cleanly"
