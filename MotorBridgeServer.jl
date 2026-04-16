@@ -1,70 +1,115 @@
+# ==========================================
+# STAGE 9 STABLE (WORKING)
+# TCP → VESC DUTY CONTROL CONFIRMED
+# Date: 2026-04-16
+# ==========================================
+module MotorBridgeServer
+
 using Sockets
 include("VESCDriver.jl")
 using .VESCDriver
 
-println("🚀 CLEAN MOTORBRIDGE SAFE START")
+# =========================
+# 🔧 GLOBAL STATE
+# =========================
+const STATE = Dict{Symbol, Any}(
+    :vesc => nothing,
+    :last_duty => 0.0,
+    :last_command_time => time(),
+    :running => true
+)
 
-global vesc = nothing
-global last_duty = 0.0
+const LOCK = ReentrantLock()
 
-function connect_vesc()
-    global vesc
-    vesc = VESCDriver.connect("/dev/vesc", 115200)
-    println("🔌 VESC connected")
+# =========================
+# 🔌 INIT VESC
+# =========================
+function init_vesc(port)
+    println("🔌 Connecting to VESC...")
+    STATE[:vesc] = VESCDriver.connect(port)
 end
 
+# =========================
+# ⚡ MOTOR LOOP
+# =========================
 function motor_loop()
     println("🔁 Motor loop running (20 Hz)")
 
-    global last_duty, vesc, running
+    while STATE[:running]
+        try
+            if STATE[:vesc] !== nothing
 
-    while running
-        if vesc !== nothing
-            try
-                VESCDriver.set_duty(vesc, last_duty)
-                println("⚡ DUTY SENT: ", last_duty)
-            catch e
-                println("❌ motor error: ", e)
+                # watchdog timeout (2 sec)
+                if time() - STATE[:last_command_time] > 2.0
+                    STATE[:last_duty] = 0.0
+                end
+
+                lock(LOCK) do
+                    VESCDriver.set_duty(
+                        STATE[:vesc],
+                        STATE[:last_duty]
+                    )
+                end
             end
+        catch e
+            println("❌ motor error: ", e)
         end
 
         sleep(0.05)
     end
 end
 
-function main()
-    println("🚀 START")
+# =========================
+# 🌐 CLIENT HANDLER
+# =========================
+function handle_client(sock)
+    println("🌐 Client connected")
 
-    connect_vesc()
+    try
+        while isopen(sock)
+            line = strip(readline(sock))
 
-    @async motor_loop()
+            val = parse(Float64, line)
 
-    server = Sockets.listen(ip"127.0.0.1", 5555)
-    println("📡 listening on 5555")
-
-    sock = Sockets.accept(server)
-    println("🔌 client connected")
-
-    while true
-        try
-            cmd = readline(sock)
-
-            if startswith(cmd, "duty")
-                global last_duty
-                last_duty = clamp(parse(Float64, split(cmd)[2]), -0.2, 0.2)
-                println("🎯 duty = ", last_duty)
-
-            elseif cmd == "stop"
-                global last_duty
-                last_duty = 0.0
-                println("🛑 stop")
+            lock(LOCK) do
+                STATE[:last_duty] = clamp(val, -0.3, 0.3)
+                STATE[:last_command_time] = time()
             end
 
-        catch e
-            println("❌ client error: ", e)
-            break
+            println("📥 CMD → ", STATE[:last_duty])
         end
+    catch e
+        println("⚠️ client error: ", e)
+    end
+
+    println("🔌 Client disconnected")
+    close(sock)
+end
+
+# =========================
+# 🌐 SERVER
+# =========================
+function start_server(port)
+    server = listen(port)
+    println("📡 listening on $port")
+
+    while true
+        sock = accept(server)
+        @async handle_client(sock)
     end
 end
 
-main()
+# =========================
+# 🚀 START
+# =========================
+function start(port="/dev/vesc", tcp_port=5555)
+    println("🚀 CLEAN START")
+
+    init_vesc(port)
+
+    @async motor_loop()
+
+    start_server(tcp_port)
+end
+
+end # module

@@ -1,62 +1,79 @@
+# ==========================================
+# STAGE 9 STABLE (WORKING)
+# TCP → VESC DUTY CONTROL CONFIRMED
+# Date: 2026-04-16
+# ==========================================
 
 module VESCDriver
 
-export connect, arm!, set_duty
-
-using Sockets
+export VESC, connect, set_duty
 
 # =========================
-# CONNECTION STRUCT
+# 🔌 VESC STRUCT
 # =========================
-mutable struct VESC
+struct VESC
     port::IO
 end
 
 # =========================
-# CONNECT
+# 🔌 CONNECT
 # =========================
-function connect(port::String, baud::Int=115200)
+function connect(port="/dev/vesc", baud=115200)
     println("🔌 Connecting to VESC on $port ...")
-
-    io = open(port, "r+")
-    Base.flush(io)
-
+    io = open(port, "w+")
     println("🔌 Connected")
     return VESC(io)
 end
 
 # =========================
-# ARM
+# 🔢 CRC16 (VESC)
 # =========================
-function arm!(vesc::VESC)
-    println("🔐 Arming VESC...")
-    sleep(0.2)
-    println("🔐 VESC armed")
+function crc16(data::Vector{UInt8})
+    crc = UInt16(0)
+    for b in data
+        crc ⊻= UInt16(b) << 8
+        for _ in 1:8
+            if (crc & 0x8000) != 0
+                crc = (crc << 1) ⊻ 0x1021
+            else
+                crc <<= 1
+            end
+        end
+    end
+    return crc
 end
 
 # =========================
-# SET DUTY (CLEAN + SAFE)
+# ⚡ SET DUTY
 # =========================
 function set_duty(vesc::VESC, duty::Float64)
     try
         duty = clamp(duty, -0.3, 0.3)
 
-        scaled = Int32(round(duty * 100000))
+        value = Int32(duty * 100000)
 
         payload = UInt8[
-            0x05,
-            (scaled >> 24) & 0xFF,
-            (scaled >> 16) & 0xFF,
-            (scaled >> 8) & 0xFF,
-            scaled & 0xFF
+            5,
+            (value >> 24) & 0xFF,
+            (value >> 16) & 0xFF,
+            (value >> 8) & 0xFF,
+            value & 0xFF
         ]
 
-        packet = UInt8[]
-        push!(packet, 0x02)
-        push!(packet, length(payload))
-        append!(packet, payload)
-        push!(packet, 0x00)
-        push!(packet, 0x03)
+        crc = crc16(payload)
+
+        packet = UInt8[
+            0x02,
+            length(payload),
+            payload...,
+            (crc >> 8) & 0xFF,
+            crc & 0xFF,
+            0x03
+        ]
+
+        println("📦 DUTY=", duty)
+        println("📦 VALUE=", value)
+        println("📦 PACKET=", packet)
 
         write(vesc.port, packet)
         flush(vesc.port)
