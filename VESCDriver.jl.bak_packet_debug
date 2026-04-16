@@ -1,0 +1,69 @@
+
+module VESCDriver
+
+export connect, arm!, set_duty
+
+using Sockets
+
+# =========================
+# CONNECTION STRUCT
+# =========================
+mutable struct VESC
+    port::IO
+end
+
+# =========================
+# CONNECT
+# =========================
+function connect(port::String, baud::Int=115200)
+    println("🔌 Connecting to VESC on $port ...")
+
+    io = open(port, "r+")
+    Base.flush(io)
+
+    println("🔌 Connected")
+    return VESC(io)
+end
+
+# =========================
+# ARM
+# =========================
+function arm!(vesc::VESC)
+    println("🔐 Arming VESC...")
+    sleep(0.2)
+    println("🔐 VESC armed")
+end
+
+# =========================
+# SET DUTY (CLEAN + SAFE)
+# =========================
+function set_duty(vesc::VESC, duty::Float64)
+    try
+        duty = clamp(duty, -0.3, 0.3)
+
+        scaled = Int32(round(duty * 100000))
+
+        payload = UInt8[
+            0x05,
+            (scaled >> 24) & 0xFF,
+            (scaled >> 16) & 0xFF,
+            (scaled >> 8) & 0xFF,
+            scaled & 0xFF
+        ]
+
+        packet = UInt8[]
+        push!(packet, 0x02)
+        push!(packet, length(payload))
+        append!(packet, payload)
+        push!(packet, 0x00)
+        push!(packet, 0x03)
+
+        write(vesc.port, packet)
+        flush(vesc.port)
+
+    catch e
+        println("❌ set_duty error: ", e)
+    end
+end
+
+end # module

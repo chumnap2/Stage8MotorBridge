@@ -1,11 +1,24 @@
+#!/bin/bash
+set -e
+
+FILE="MotorBridgeServer.jl"
+
+echo "🚀 FULL CLEAN REWRITE: MotorBridgeServer.jl"
+
+cp "$FILE" "${FILE}.bak_clean_$(date +%s)"
+
+cat > "$FILE" << 'CODE'
+
 module MotorBridgeServer
 
 using Sockets
 include("VESCDriver.jl")
 
-# =========================================================
-# GLOBAL STATE
-# =========================================================
+# =========================
+# GLOBAL STATE + LOCK
+# =========================
+const STATE_LOCK = ReentrantLock()
+
 const STATE = Dict{Symbol, Any}(
     :vesc => nothing,
     :last_duty => 0.0,
@@ -13,20 +26,20 @@ const STATE = Dict{Symbol, Any}(
     :running => true
 )
 
-const STATE_LOCK = ReentrantLock()
-
-# =========================================================
+# =========================
 # INIT VESC
-# =========================================================
+# =========================
 function init_vesc(port::String)
-    println("🔌 Connecting to VESC on $port ...")
-    STATE[:vesc] = VESCDriver.connect(port)
-    println("🔌 VESC connected")
+    println("🔌 Connecting to VESC...")
+    lock(STATE_LOCK) do
+        STATE[:vesc] = VESCDriver.connect(port)
+    end
+    println("🔌 Connected")
 end
 
-# =========================================================
+# =========================
 # TCP SERVER
-# =========================================================
+# =========================
 function start_server(tcp_port::Int)
     server = listen(tcp_port)
     println("📡 listening on $tcp_port")
@@ -37,9 +50,9 @@ function start_server(tcp_port::Int)
     end
 end
 
-# =========================================================
-# CLIENT HANDLER (CLEAN + SAFE)
-# =========================================================
+# =========================
+# CLIENT HANDLER
+# =========================
 function handle_client(sock)
     println("🟢 CLIENT CONNECTED")
 
@@ -52,7 +65,7 @@ function handle_client(sock)
             val = try
                 parse(Float64, msg)
             catch
-                println("⚠️ invalid input")
+                println("⚠️ bad input")
                 continue
             end
 
@@ -63,7 +76,7 @@ function handle_client(sock)
                 STATE[:last_command_time] = time()
             end
 
-            println("📥 CMD OK → duty = ", val)
+            println("📥 CMD OK → ", val)
         end
 
     catch e
@@ -74,26 +87,29 @@ function handle_client(sock)
     close(sock)
 end
 
-# =========================================================
+# =========================
 # MOTOR LOOP
-# =========================================================
+# =========================
 function motor_loop()
     while STATE[:running]
 
-        dt = time() - STATE[:last_command_time]
-
         duty = 0.0
+        dt = 0.0
 
         lock(STATE_LOCK) do
             duty = STATE[:last_duty]
+            dt = time() - STATE[:last_command_time]
         end
 
-        # watchdog safety
+        # watchdog
         if dt > 2.0
             duty = 0.0
         end
 
-        println("⏱ dt=", round(dt, digits=3), " duty=", duty)
+        # light logging
+        if rand() < 0.1
+            println("⏱ dt=", round(dt, digits=3), " duty=", duty)
+        end
 
         try
             if STATE[:vesc] !== nothing
@@ -107,9 +123,9 @@ function motor_loop()
     end
 end
 
-# =========================================================
-# START ENTRYPOINT
-# =========================================================
+# =========================
+# START
+# =========================
 function start(port="/dev/vesc", tcp_port=5555)
 
     println("🚀 CLEAN START")
@@ -119,7 +135,7 @@ function start(port="/dev/vesc", tcp_port=5555)
     @async start_server(tcp_port)
     @async motor_loop()
 
-    println("🔁 Motor loop running (20 Hz)")
+    println("🔁 SYSTEM RUNNING (20 Hz)")
 
     while true
         sleep(1)
@@ -127,3 +143,8 @@ function start(port="/dev/vesc", tcp_port=5555)
 end
 
 end # module
+
+CODE
+
+echo "✅ CLEAN REWRITE COMPLETE"
+echo "👉 Run: julia -e 'include(\"MotorBridgeServer.jl\"); using .MotorBridgeServer; MotorBridgeServer.start()'"
